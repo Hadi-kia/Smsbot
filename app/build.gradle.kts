@@ -6,8 +6,8 @@ android {
         applicationId = "com.hadi.smsbot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3-alpha"
+        versionCode = 5
+        versionName = "0.2.0-alpha"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
