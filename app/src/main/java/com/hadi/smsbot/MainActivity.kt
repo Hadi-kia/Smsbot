@@ -116,7 +116,7 @@ class MainActivity : Activity() {
 
         val actions = LinearLayout(this)
         root.addView(actions)
-        sendButton = button("پیش‌نمایش و ارسال") { preview() }
+        sendButton = button("ارسال مستقیم با مجوز SMS") { preview() }
         actions.addView(sendButton, rowLayout())
         stopButton = button("توقف") { stop("صف متوقف شد؛ پیامک‌های ارسال‌شده قابل بازگرداندن نیستند.") }
         stopButton.isEnabled = false
@@ -273,7 +273,7 @@ class MainActivity : Activity() {
             REQUEST_SEND -> status.text =
                 if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED)
                     "مجوز ارسال تأیید شد؛ پیش‌نمایش و تأیید نهایی را دوباره انجام دهید."
-                else "مجوز ارسال SMS داده نشد؛ هیچ پیامی ارسال نشده است."
+                else "مجوز ارسال مستقیم SMS داده نشد. از دکمه «SMS با برنامه گوشی» استفاده کنید."
         }
     }
 
@@ -372,6 +372,7 @@ class MainActivity : Activity() {
                 .setTitle("مجوز ارسال واقعی SMS")
                 .setMessage("برای ارسال باید سیستم مجوز SEND_SMS را تأیید کند. پس از درخواست، دوباره به‌صورت دستی پیام را تأیید کنید.")
                 .setNegativeButton("لغو", null)
+                .setNeutralButton("با برنامه پیامک گوشی") { _, _ -> prepareManualSms() }
                 .setPositiveButton("درخواست مجوز") { _, _ ->
                     requestPermissions(arrayOf(Manifest.permission.SEND_SMS), REQUEST_SEND)
                 }.show()
