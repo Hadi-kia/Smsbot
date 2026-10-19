@@ -79,6 +79,8 @@ class MainActivity : Activity() {
         importRow.addView(button("خواندن دفترچه + SMS") { readWithPermission() }, rowLayout())
         importRow.addView(button("افزودن CSV") { chooseCsv() }, rowLayout())
 
+        root.addView(button("تلگرام / واتساپ / روبیکا / بله و ارسال رسانه") { openChannelHub() })
+
         val selectRow = LinearLayout(this)
         root.addView(selectRow)
         selectRow.addView(button("انتخاب همه") { selectAll(true) }, rowLayout())
@@ -126,6 +128,30 @@ class MainActivity : Activity() {
         text = title
         textSize = 12f
         setOnClickListener { action() }
+    }
+
+    private fun openChannelHub() {
+        if (sending) {
+            status.text = "ابتدا صف SMS را متوقف کنید."
+            return
+        }
+        val chosen = selected()
+        if (chosen.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("انتخاب گیرندگان")
+                .setMessage("فعلاً گیرنده‌ای انتخاب نشده است. برای برنامه‌ریزی گروه‌ها مخاطبان را انتخاب کنید. برای اشتراک متن و رسانه می‌توانید بدون فهرست هم ادامه دهید.")
+                .setNegativeButton("لغو", null)
+                .setPositiveButton("ادامه") { _, _ -> startChannelHub(chosen) }
+                .show()
+        } else startChannelHub(chosen)
+    }
+
+    private fun startChannelHub(chosen: List<Recipient>) {
+        startActivity(Intent(this, ChannelHubActivity::class.java).apply {
+            putStringArrayListExtra("phones", ArrayList(chosen.map { it.phone }))
+            putStringArrayListExtra("names", ArrayList(chosen.map { it.name }))
+            putExtra("draft", messageInput.text.toString())
+        })
     }
 
     private fun readWithPermission() {
