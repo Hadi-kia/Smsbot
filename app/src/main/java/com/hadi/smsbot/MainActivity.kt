@@ -22,6 +22,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import android.widget.ScrollView
 
 /**
  * Manual, consent-first private SMS prototype.
@@ -75,7 +76,9 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             setPadding(px(12), px(12), px(12), px(12))
         }
-        setContentView(root)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        scroll.addView(root)
+        setContentView(scroll)
         root.addView(TextView(this).apply { text = "SMS Bot — نسخه آزمایشی"; textSize = 21f })
         status = TextView(this).apply { textSize = 13f }
         root.addView(status)
@@ -98,7 +101,7 @@ class MainActivity : Activity() {
             choiceMode = ListView.CHOICE_MODE_MULTIPLE
             setOnItemClickListener { _, _, _, _ -> updateCount() }
         }
-        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(220)))
 
         root.addView(TextView(this).apply { text = "متن پیام:" })
         messageInput = EditText(this).apply {
