@@ -4,6 +4,20 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-feature android:name="android.hardware.telephony.messaging" android:required="false" />
+    <!-- Narrow package visibility: required for app launch diagnostics on Android 11+. -->
+    <queries>
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="app.rbmain.a" />
+        <package android:name="ir.resaneh1.iptv" />
+        <package android:name="ir.nasim" />
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+    </queries>
     <application android:label="SMS Bot" android:allowBackup="false" android:supportsRtl="true" android:icon="@drawable/ic_sms_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".ChannelHubActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
