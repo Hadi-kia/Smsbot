@@ -115,7 +115,8 @@ class ChannelHubActivity : Activity() {
         policyText = text("", 12f)
         root.addView(policyText)
         root.addView(button("مشاهده راهنمای رسمی پیام‌رسان") {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentPlatform.officialUrl)))
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentPlatform.officialUrl))) }
+            catch (e: Exception) { status.text = "امکان باز کردن مرورگر وجود ندارد: ${e.javaClass.simpleName}" }
         })
 
         root.addView(text("متن مشترک برای اشتراک‌گذاری:", 15f))
@@ -163,6 +164,8 @@ class ChannelHubActivity : Activity() {
         root.addView(button("کپی شماره‌های این دسته (برای مدیریت دستی)") { copyBatch() })
         root.addView(text("وضعیت دسته‌ها فقط در زمان باز بودن این صفحه نگهداری می‌شود. «بررسی‌شده» به معنی ارسال یا تحویل پیام نیست.", 12f))
 
+        root.addView(button("آزمایش باز شدن پیام‌رسان انتخاب‌شده") { testOpenApp() })
+        root.addView(button("کپی متن پیام (راه جایگزین)") { copyDraft() })
         root.addView(button("اشتراک پیام / عکس / ویدیو در برنامه انتخاب‌شده") { shareInApp() })
         status = text("", 13f)
         root.addView(status)
@@ -276,6 +279,37 @@ class ChannelHubActivity : Activity() {
         mediaText.text = "رسانه انتخاب شد: ${mediaMime}"
     }
 
+    private fun copyDraft() {
+        val draft = message.text.toString().trim()
+        if (draft.isBlank()) { status.text = "برای کپی ابتدا متن وارد کنید."; return }
+        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText("SMS Bot message", draft))
+        status.text = "متن کپی شد. در پیام‌رسان مقصد گفتگوی مورد نظر را باز و متن را جای‌گذاری کنید."
+    }
+
+    private fun testOpenApp() {
+        for (pkg in currentPlatform.packages) {
+            try {
+                val launchIntent = packageManager.getLaunchIntentForPackage(pkg) ?: continue
+                startActivity(launchIntent)
+                status.text = "برنامه ${currentPlatform.label} باز شد؛ این آزمایش چیزی ارسال نمی‌کند."
+                return
+            } catch (_: ActivityNotFoundException) {
+                // Try other installed variants.
+            } catch (_: SecurityException) {
+                // Try other installed variants.
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("برنامه ${currentPlatform.label} باز نشد")
+            .setMessage("نسخه برنامه ممکن است نصب نباشد، شناسه متفاوت داشته باشد یا از این مسیر پشتیبانی نکند. دکمه اشتراک را امتحان کنید تا انتخاب‌گر اندروید در دسترس باشد.")
+            .setNegativeButton("بستن", null)
+            .setPositiveButton("صفحه رسمی") { _, _ ->
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(currentPlatform.officialUrl))) }
+                catch (e: Exception) { status.text = "مرورگر هم در دسترس نیست: ${e.javaClass.simpleName}" }
+            }.show()
+    }
+
     private fun shareInApp() {
         val draft = message.text.toString().trim()
         val uri = mediaUri
@@ -320,10 +354,15 @@ class ChannelHubActivity : Activity() {
                             "می‌توانید برنامه مقصد را از پنجره اشتراک اندروید خودتان انتخاب کنید.")
                         .setNegativeButton("انصراف", null)
                         .setPositiveButton("انتخاب از برنامه‌ها") { _, _ ->
-                            startActivity(Intent.createChooser(send, "اشتراک با پیام‌رسان"))
+                            try {
+                                startActivity(Intent.createChooser(send, "اشتراک با پیام‌رسان"))
+                                status.text = "پنجره اشتراک اندروید باز شد؛ خودتان مقصد را انتخاب و ارسال را تأیید کنید."
+                            } catch (e: Exception) {
+                                status.text = "پنجره اشتراک باز نشد: ${e.javaClass.simpleName}. متن را کپی کنید یا نوع رسانه دیگری را امتحان کنید."
+                            }
                         }.show()
                 }
-                status.text = "فقط درخواست اشتراک به اندروید داده شد؛ ارسال/تحویل تأیید نشده است."
+                if (opened) status.text = "درخواست اشتراک به پیام‌رسان داده شد؛ ارسال/تحویل تأیید نشده است."
             }.show()
     }
 

@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
@@ -20,6 +22,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import android.widget.ScrollView
 
 /**
  * Manual, consent-first private SMS prototype.
@@ -43,6 +46,10 @@ class MainActivity : Activity() {
     private lateinit var consent: CheckBox
     private lateinit var sendButton: Button
     private lateinit var stopButton: Button
+    private lateinit var nextManualButton: Button
+    private var manualBatch: List<Recipient> = emptyList()
+    private var manualPosition = 0
+    private var manualText = ""
 
     private var phoneCandidates: List<Candidate> = emptyList()
     private var fileCandidates: List<Candidate> = emptyList()
@@ -69,7 +76,9 @@ class MainActivity : Activity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             setPadding(px(12), px(12), px(12), px(12))
         }
-        setContentView(root)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        scroll.addView(root)
+        setContentView(scroll)
         root.addView(TextView(this).apply { text = "SMS Bot — نسخه آزمایشی"; textSize = 21f })
         status = TextView(this).apply { textSize = 13f }
         root.addView(status)
@@ -92,7 +101,7 @@ class MainActivity : Activity() {
             choiceMode = ListView.CHOICE_MODE_MULTIPLE
             setOnItemClickListener { _, _, _, _ -> updateCount() }
         }
-        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(220)))
 
         root.addView(TextView(this).apply { text = "متن پیام:" })
         messageInput = EditText(this).apply {
@@ -110,11 +119,19 @@ class MainActivity : Activity() {
 
         val actions = LinearLayout(this)
         root.addView(actions)
-        sendButton = button("پیش‌نمایش و ارسال") { preview() }
+        sendButton = button("ارسال مستقیم با مجوز SMS") { preview() }
         actions.addView(sendButton, rowLayout())
         stopButton = button("توقف") { stop("صف متوقف شد؛ پیامک‌های ارسال‌شده قابل بازگرداندن نیستند.") }
         stopButton.isEnabled = false
         actions.addView(stopButton, rowLayout())
+
+        val manualRow = LinearLayout(this)
+        root.addView(manualRow)
+        manualRow.addView(button("SMS با برنامه گوشی") { prepareManualSms() }, rowLayout())
+        nextManualButton = button("شماره بعدی") { nextManualSms() }
+        nextManualButton.isEnabled = false
+        manualRow.addView(nextManualButton, rowLayout())
+        root.addView(button("تست SMS به شماره خودم (بدون مجوز ارسال)") { askOwnNumber() })
 
         root.addView(TextView(this).apply {
             textSize = 11f
@@ -128,6 +145,88 @@ class MainActivity : Activity() {
         text = title
         textSize = 12f
         setOnClickListener { action() }
+    }
+
+    /**
+     * ACTION_SENDTO with smsto: delegates to the installed/default SMS app.
+     * No SEND_SMS permission is required by SMS Bot for this explicit compose flow.
+     * Calling startActivity DOES NOT mean the message was sent.
+     */
+    private fun openSmsComposer(number: String, body: String): Boolean {
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", number, null)).apply {
+            putExtra("sms_body", body)
+        }
+        return try {
+            startActivity(intent)
+            status.text = "صفحه نوشتن SMS برای $number درخواست شد. ارسال را داخل برنامه پیامک خود تأیید کنید."
+            true
+        } catch (e: ActivityNotFoundException) {
+            status.text = "هیچ برنامه SMS برای این گوشی پیدا نشد؛ یک برنامه پیامک پیش‌فرض فعال کنید."
+            false
+        } catch (e: SecurityException) {
+            status.text = "اندروید باز کردن برنامه SMS را محدود کرد: ${e.javaClass.simpleName}"
+            false
+        } catch (e: Exception) {
+            status.text = "باز کردن برنامه SMS ناموفق بود: ${e.javaClass.simpleName}"
+            false
+        }
+    }
+
+    private fun askOwnNumber() {
+        if (sending) return
+        val input = EditText(this).apply {
+            hint = "مثلاً +98912..."
+            inputType = InputType.TYPE_CLASS_PHONE
+        }
+        AlertDialog.Builder(this)
+            .setTitle("آزمایش بدون دسترسی حساس SMS")
+            .setMessage("فقط شماره‌ای متعلق به خودتان وارد کنید. این مرحله پیام را ارسال نمی‌کند؛ صفحه نوشتن پیام را باز می‌کند.")
+            .setView(input)
+            .setNegativeButton("لغو", null)
+            .setPositiveButton("باز کردن برنامه پیامک") { _, _ ->
+                val number = input.text.toString().trim()
+                if (number.count(Char::isDigit) !in 7..15) {
+                    status.text = "شماره تست معتبر نیست."
+                    return@setPositiveButton
+                }
+                val body = messageInput.text.toString().trim().ifBlank { "آزمایش SMS Bot" }
+                openSmsComposer(number, body)
+            }.show()
+    }
+
+    private fun prepareManualSms() {
+        if (sending) return
+        val chosen = selected()
+        val body = messageInput.text.toString().trim()
+        when {
+            chosen.isEmpty() -> { status.text = "یک یا چند گیرنده انتخاب کنید."; return }
+            body.isEmpty() -> { status.text = "متن پیام را بنویسید."; return }
+            !consent.isChecked -> { status.text = "ابتدا رضایت همه گیرندگان انتخاب‌شده را تأیید کنید."; return }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("آماده‌سازی دستی پیامک")
+            .setMessage("${chosen.size} مخاطب انتخاب شده‌اند. هر بار فقط شماره یک نفر داخل برنامه پیامک باز می‌شود. بعد از بازگشت، برای شماره بعدی خودتان تصمیم می‌گیرید. SMS Bot از ارسال موفق مطلع نمی‌شود و ممکن است هزینه سیم‌کارت داشته باشد.")
+            .setNegativeButton("انصراف", null)
+            .setPositiveButton("شروع از اولین گیرنده") { _, _ ->
+                manualBatch = chosen.toList()
+                manualText = body
+                manualPosition = 0
+                nextManualSms()
+            }.show()
+    }
+
+    private fun nextManualSms() {
+        if (sending) return
+        if (manualPosition >= manualBatch.size) {
+            nextManualButton.isEnabled = false
+            status.text = "پایان فهرست دستی: ${manualBatch.size} پنجره نوشتن SMS درخواست شده است؛ هیچ وضعیت ارسال یا تحویل ثبت نشده."
+            return
+        }
+        val recipient = manualBatch[manualPosition]
+        if (openSmsComposer(recipient.phone, manualText)) {
+            manualPosition++
+            nextManualButton.isEnabled = manualPosition < manualBatch.size
+        }
     }
 
     private fun openChannelHub() {
@@ -177,7 +276,7 @@ class MainActivity : Activity() {
             REQUEST_SEND -> status.text =
                 if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED)
                     "مجوز ارسال تأیید شد؛ پیش‌نمایش و تأیید نهایی را دوباره انجام دهید."
-                else "مجوز ارسال SMS داده نشد؛ هیچ پیامی ارسال نشده است."
+                else "مجوز ارسال مستقیم SMS داده نشد. از دکمه «SMS با برنامه گوشی» استفاده کنید."
         }
     }
 
@@ -276,6 +375,7 @@ class MainActivity : Activity() {
                 .setTitle("مجوز ارسال واقعی SMS")
                 .setMessage("برای ارسال باید سیستم مجوز SEND_SMS را تأیید کند. پس از درخواست، دوباره به‌صورت دستی پیام را تأیید کنید.")
                 .setNegativeButton("لغو", null)
+                .setNeutralButton("با برنامه پیامک گوشی") { _, _ -> prepareManualSms() }
                 .setPositiveButton("درخواست مجوز") { _, _ ->
                     requestPermissions(arrayOf(Manifest.permission.SEND_SMS), REQUEST_SEND)
                 }.show()
