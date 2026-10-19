@@ -173,9 +173,6 @@ class ChannelHubActivity : Activity() {
     }
 
     private fun setPlatform(platform: Platform) {
-        if (::chunkSize.isInitialized) {
-            plans[currentPlatform]?.groupSize = chunkSize.text.toString().toIntOrNull()?.coerceIn(1, BatchPlanner.MAX_LOCAL_GROUP_SIZE) ?: 20
-        }
         currentPlatform = platform
         chunkSize.setText(plan().groupSize.toString())
         policyText.text = when (platform) {
@@ -227,7 +224,7 @@ class ChannelHubActivity : Activity() {
         state.currentIndex = batchIndex
         val batch = batches[batchIndex]
         groupCount.text = "کانال ${currentPlatform.label} | دسته ${batchIndex + 1} از ${batches.size} | ${batch.size} شماره | مرور دستی ${state.manuallyReviewed.size}/${batches.size}"
-        groupPreview.text = batch.take(12).joinToString("\\n") { i ->
+        groupPreview.text = batch.take(12).joinToString("\n") { i ->
             "${i + 1}. ${names.getOrNull(i) ?: ""} | ${phones[i]}"
         } + if (batch.size > 12) "\\n... و ${batch.size - 12} شماره دیگر" else ""
         reviewedButton.text = if (batchIndex in state.manuallyReviewed) {
