@@ -50,8 +50,18 @@ class ChannelHubActivity : Activity() {
     private var mediaUri: Uri? = null
     private var mediaMime: String? = null
     private var currentPlatform: Platform = Platform.WHATSAPP
+    private data class ChannelPlan(
+        var groupSize: Int = 20,
+        var currentIndex: Int = 0,
+        var groups: List<List<Int>> = emptyList(),
+        val manuallyReviewed: MutableSet<Int> = mutableSetOf()
+    )
+    private val plans = mutableMapOf<Platform, ChannelPlan>()
+    private fun plan() = plans.getOrPut(currentPlatform) { ChannelPlan() }
     private var batchIndex = 0
     private var batches: List<List<Int>> = emptyList()
+    private lateinit var reviewedButton: Button
+    private var pendingMediaType = "image/*"
     private var names: List<String> = emptyList()
     private var phones: List<String> = emptyList()
 
@@ -148,7 +158,10 @@ class ChannelHubActivity : Activity() {
         root.addView(batchNav)
         batchNav.addView(button("دسته قبل") { showBatch((batchIndex - 1).coerceAtLeast(0)) }, rowParam())
         batchNav.addView(button("دسته بعد") { showBatch((batchIndex + 1).coerceAtMost(batches.lastIndex)) }, rowParam())
+        reviewedButton = button("علامت‌گذاری: این دسته را دستی بررسی کردم") { toggleReviewed() }
+        root.addView(reviewedButton)
         root.addView(button("کپی شماره‌های این دسته (برای مدیریت دستی)") { copyBatch() })
+        root.addView(text("وضعیت دسته‌ها فقط در زمان باز بودن این صفحه نگهداری می‌شود. «بررسی‌شده» به معنی ارسال یا تحویل پیام نیست.", 12f))
 
         root.addView(button("اشتراک پیام / عکس / ویدیو در برنامه انتخاب‌شده") { shareInApp() })
         status = text("", 13f)
@@ -161,6 +174,7 @@ class ChannelHubActivity : Activity() {
 
     private fun setPlatform(platform: Platform) {
         currentPlatform = platform
+        chunkSize.setText(plan().groupSize.toString())
         policyText.text = when (platform) {
             Platform.WHATSAPP ->
                 "واتساپ | فهرست Broadcast تا ۲۵۶ مخاطب؛ گیرندگان باید شماره شما را ذخیره داشته باشند. " +
@@ -180,27 +194,52 @@ class ChannelHubActivity : Activity() {
     }
 
     private fun makeBatches() {
-        var requested = chunkSize.text.toString().toIntOrNull() ?: 20
-        requested = requested.coerceIn(1, 256)
-        if (currentPlatform == Platform.WHATSAPP && requested > 256) requested = 256
+        val state = plan()
+        val requested = (chunkSize.text.toString().toIntOrNull() ?: 20)
+            .coerceIn(1, BatchPlanner.MAX_LOCAL_GROUP_SIZE)
         chunkSize.setText(requested.toString())
-        batches = phones.indices.chunked(requested)
-        batchIndex = 0
-        showBatch(0)
+        val revised = BatchPlanner.groupIndices(phones.size, requested)
+        if (state.groupSize != requested || state.groups != revised) {
+            // A changed address set/size invalidates earlier manual progress.
+            state.manuallyReviewed.clear()
+            state.currentIndex = 0
+        }
+        state.groupSize = requested
+        state.groups = revised
+        batches = revised
+        batchIndex = state.currentIndex.coerceIn(0, (batches.size - 1).coerceAtLeast(0))
+        showBatch(batchIndex)
     }
 
     private fun showBatch(index: Int) {
         if (batches.isEmpty()) {
             groupCount.text = "هیچ گیرنده‌ای انتخاب نشده است."
             groupPreview.text = "برای برنامه‌ریزی دسته‌ها، ابتدا در صفحه SMS مخاطبان را انتخاب کنید."
+            reviewedButton.isEnabled = false
             return
         }
+        reviewedButton.isEnabled = true
+        val state = plan()
         batchIndex = index.coerceIn(0, batches.lastIndex)
+        state.currentIndex = batchIndex
         val batch = batches[batchIndex]
-        groupCount.text = "کانال ${currentPlatform.label} | دسته ${batchIndex + 1} از ${batches.size} | ${batch.size} شماره"
+        groupCount.text = "کانال ${currentPlatform.label} | دسته ${batchIndex + 1} از ${batches.size} | ${batch.size} شماره | مرور دستی ${state.manuallyReviewed.size}/${batches.size}"
         groupPreview.text = batch.take(12).joinToString("\n") { i ->
             "${i + 1}. ${names.getOrNull(i) ?: ""} | ${phones[i]}"
-        } + if (batch.size > 12) "\n... و ${batch.size - 12} شماره دیگر" else ""
+        } + if (batch.size > 12) "\\n... و ${batch.size - 12} شماره دیگر" else ""
+        reviewedButton.text = if (batchIndex in state.manuallyReviewed) {
+            "لغو علامت بررسی دستی این دسته"
+        } else {
+            "این دسته را خودم بررسی کردم (نه تأیید ارسال)"
+        }
+    }
+
+    private fun toggleReviewed() {
+        if (batches.isEmpty()) return
+        val state = plan()
+        if (!state.manuallyReviewed.add(batchIndex)) state.manuallyReviewed.remove(batchIndex)
+        showBatch(batchIndex)
+        status.text = "این علامت فقط برای پیگیری دستی است؛ SMS Bot ارسال در پیام‌رسان را تأیید یا گزارش نمی‌کند."
     }
 
     private fun copyBatch() {
@@ -213,6 +252,7 @@ class ChannelHubActivity : Activity() {
     }
 
     private fun pickMedia(mime: String) {
+        pendingMediaType = mime
         val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = mime
@@ -231,7 +271,8 @@ class ChannelHubActivity : Activity() {
             // The current picker may grant only transient access.
         }
         mediaUri = uri
-        mediaMime = contentResolver.getType(uri) ?: if (data.type == "video/*") "video/*" else "image/*"
+        val detected = contentResolver.getType(uri).orEmpty()
+        mediaMime = if (detected.startsWith("image/") || detected.startsWith("video/")) detected else pendingMediaType
         mediaText.text = "رسانه انتخاب شد: ${mediaMime}"
     }
 
